@@ -64,3 +64,35 @@ D. **Prove the failing request**: any no-root technique to log the SDK's HTTP la
 ## Deliverables available if needed
 - Patched base APK + patched arm64 split (our key), keystore.
 - Original cert DER, method-dump tooling, PM-proxy generator script, full smali tree with all patches.
+
+---
+
+## UPDATE — Session 2 evidence (same single device)
+
+### Test results (all on the SAME physical device)
+
+| # | Test | Result |
+|---|---|---|
+| 1 | Original-signed, Play-installed, **guest** (fresh data) | crack modal STILL fires (3 starts / 40s; "account abnormality" template). ⇒ verdict is device-keyed, not account- or build-keyed. |
+| 2 | Same, after `settings put secure android_id <random>` + `pm clear` | 0 modal for ~70s, home + filter panel load. **Initially read as "flag cleared" — later retracted, see #4.** |
+| 3 | Re-signed build (full patch stack) right after #2 | 0 modal on launch; **Filters panel loads real content** (previously empty); navigation reached editor. |
+| 4 | Same session, minutes later (identity re-registered) | `device_id` / `openudid` / both `iid`s are the ORIGINAL flagged values again; crack modal fires 52×/session (suppressed). ⇒ identity is re-derived server-side from hardware fingerprint; `ANDROID_ID` is not the (only) input. Test #2/#3 were measured inside the pre-registration window — **artifact**. |
+| 5 | Effects (clip) panel on re-signed build, flagged identity | generic "server busy"-style error. **But**: PatchRet instrumentation (logs every response carrying the vendor rejection code through the Java interceptor) recorded **0 entries** this whole session — the rejection no longer flows through the Java-visible interceptor. |
+
+### What is now PROVEN
+- The backend keeps a **sticky risk flag keyed to a hardware-fingerprint identity** (survives `pm clear`, uninstall, reinstall-from-Play, and `ANDROID_ID` change — the server re-mints the SAME `device_id` after re-registration).
+- The crack modal text ("account abnormality…") is a server-rendered template shown even for **guest** sessions ⇒ wording ≠ account flag.
+- Our patch stack (spoof + PM proxy + native-guard digest swap + enforcement removals) is *partially* accepted: the Filters panel — empty before the full stack — now loads real content; no rejection codes appear in the Java interceptor anymore.
+
+### What remains UNRESOLVED (and why)
+- Whether the Effects endpoint would serve the re-signed build on a **clean** identity cannot be tested on this device: the sticky device flag contaminates every online observation (per-endpoint enforcement under flag).
+- Candidate causes for the Effects refusal, in current order of plausibility:
+  1. per-endpoint enforcement of the same device flag (Filters endpoint lax, Effects endpoint strict),
+  2. the risk-control verdict gating the panel locally,
+  3. native request tokens still encoding the real signer.
+  These are **not separable** with one flagged device and no backend visibility.
+- Only decisive next step: run the identical re-signed build on a never-flagged device (any clean hardware). If Effects load there, everything client-side is solved; if not, the native token lib is the last layer.
+
+### Corrections
+- Session-1 note "device_id restored from fingerprint, /sdcard checked" confirmed and extended: the restoration is **server-side re-registration**, not local file/cache.
+- The session-2 interim conclusion "ANDROID_ID change clears the flag" is **retracted** (measurement-window artifact).
